@@ -130,6 +130,36 @@ class ReferenceDiscoveryTests(unittest.TestCase):
         self.assertTrue(catalog.is_stale(catalog.load_catalog(self.out / "catalog.json")))
 
 
+    def test_failed_reference_refresh_preserves_old_choices_but_prunes_other_observations(self):
+        saved = self.entry("old-owner/component")
+        saved["reference"] = self.reference
+        expired = self.entry("other-owner/expired")
+        self.write_catalog({"updated": "2026-11-14", "sources": {},
+                            "reference_revision": catalog.REFERENCE_REVISION,
+                            "repos": {"old-owner/component": saved, "other-owner/expired": expired}})
+
+        def unavailable(found, token):
+            raise ValueError("reference collector unavailable")
+
+        def other_source(found, token):
+            catalog.add(found, "other-owner/current", "other-source", self.repository("other-owner/current"))
+
+        output = io.StringIO()
+        future = dt.date(2026, 11, 14) + dt.timedelta(days=catalog.KEEP_DAYS + 1)
+        with patch.object(catalog, "today", return_value=future), \
+                patch.object(catalog, "SOURCES", [("reference-library", unavailable), ("other-source", other_source)]), \
+                patch.object(catalog, "github_token", return_value=None), \
+                contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
+            catalog.update(argparse.Namespace(out=self.out))
+            catalog.find(argparse.Namespace(out=self.out, terms=["doctor admin"], limit=20, no_refresh=True))
+        retained = catalog.load_catalog(self.out / "catalog.json")
+        self.assertIn("[old-owner/component]", output.getvalue())
+        self.assertIn(self.reference["caution"], output.getvalue())
+        self.assertEqual(retained["repos"]["old-owner/component"]["last_seen"], "2026-11-14")
+        self.assertNotIn("other-owner/expired", retained["repos"])
+        self.assertTrue(catalog.is_stale(retained))
+
+
     def test_newer_incompatible_publication_cannot_erase_saved_reference_on_api_failure(self):
         saved = self.entry("new-owner/component")
         saved["reference"] = self.reference

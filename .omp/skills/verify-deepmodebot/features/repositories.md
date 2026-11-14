@@ -14,7 +14,10 @@ python plugins/deepmodebot/skills/deepmodebot/scripts/trending.py find translati
 
 Capture stdout/stderr, the generated catalog and its reference revision. Inspect actual matching identities, dated analyst topics and complete cautions. Confirm OpenMausBot is a nonclinical synthetic-data prototype lead, not a clinically validated product; its enterprise terms are separate from the core license. A root license badge is not permission for all bundled components or a hosting/resale agreement.
 
-The deterministic regressions cover same-day published data, alias/history preservation, and collector/enrichment failures retaining searchable cautions without false freshness. They isolate input adapters and transport, not live API success. The running CLI above is the surface proof; record failed source/enrichment requests rather than claiming every candidate is current.
+The deterministic regressions cover same-day published data, alias/history preservation, and collector/enrichment failures retaining searchable cautions without false freshness.
+Saved reference choices survive a failed refresh beyond the ordinary 120-day observation window, without changing their last-seen date; unrelated expired observations still disappear.
+These cases isolate input adapters and transport, not live API success.
+The running CLI above is the surface proof; record failed source/enrichment requests rather than claiming every candidate is current.
 
 ## Guidance probes
 
