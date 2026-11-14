@@ -231,13 +231,14 @@ def update(args):
     stamp = today().isoformat()
     for item in found.values():
         repo = item["repo"]
-        if not repo or repo.get("fork") or repo.get("archived"):
+        if not repo:
+            continue
+        key, alias = repo["full_name"].lower(), item["name"].lower()
+        if (repo.get("fork") or repo.get("archived")) and key not in references and alias not in references:
             continue
         fresh = entry_from(repo)
-        key = fresh["name"].lower()
         previous = repos.get(key, {})
         seen_in = set(previous.get("seen_in", []))
-        alias = item["name"].lower()
         if alias != key:
             alias_previous = repos.pop(alias, {})
             seen_in.update(alias_previous.get("seen_in", []))
@@ -292,6 +293,9 @@ def line(entry):
     if entry["description"]:
         parts.append(entry["description"])
     reference = entry.get("reference")
+    statuses = [name for name in ("archived", "fork") if entry.get(name)]
+    if statuses:
+        parts.append(("reference only: " if reference else "") + ", ".join(statuses))
     if reference:
         parts.append(f"reference {reference['reviewed']}: " + ", ".join(reference["topics"]))
         if reference["caution"]:

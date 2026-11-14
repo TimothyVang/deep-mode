@@ -160,6 +160,49 @@ class ReferenceDiscoveryTests(unittest.TestCase):
         self.assertTrue(catalog.is_stale(retained))
 
 
+    def test_inactive_reference_alias_retains_cautions_and_current_liveness(self):
+        for flag in ("archived", "fork"):
+            for reference_ready in (True, False):
+                with self.subTest(flag=flag, reference_ready=reference_ready):
+                    saved = self.entry("old-owner/component")
+                    saved["reference"] = self.reference
+                    self.write_catalog({"updated": "2026-11-14", "sources": {},
+                                        "repos": {"old-owner/component": saved}})
+                    inactive = self.repository("new-owner/component")
+                    inactive[flag] = True
+                    unrelated = self.repository("other-owner/inactive")
+                    unrelated[flag] = True
+
+                    def reference_source(found, token):
+                        if not reference_ready:
+                            raise ValueError("reference collector unavailable")
+                        catalog.add(found, "old-owner/component", "reference-library", inactive)
+                        found["old-owner/component"]["reference"] = self.reference
+
+                    def other_source(found, token):
+                        if not reference_ready:
+                            catalog.add(found, "old-owner/component", "other-source", inactive)
+                        catalog.add(found, "other-owner/inactive", "other-source", unrelated)
+
+                    output = io.StringIO()
+                    future = dt.date(2026, 11, 14) + dt.timedelta(days=catalog.KEEP_DAYS + 1)
+                    with patch.object(catalog, "today", return_value=future), \
+                            patch.object(catalog, "SOURCES", [("reference-library", reference_source),
+                                                            ("other-source", other_source)]), \
+                            patch.object(catalog, "github_token", return_value=None), \
+                            contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
+                        catalog.update(argparse.Namespace(out=self.out))
+                        catalog.find(argparse.Namespace(out=self.out, terms=["doctor admin"], limit=20, no_refresh=True))
+                    current = catalog.load_catalog(self.out / "catalog.json")
+                    self.assertIn("[new-owner/component]", output.getvalue())
+                    self.assertIn("reference only: " + flag, output.getvalue())
+                    self.assertIn(self.reference["caution"], output.getvalue())
+                    self.assertNotIn("old-owner/component", current["repos"])
+                    self.assertNotIn("other-owner/inactive", current["repos"])
+                    self.assertIn("earlier-source", current["repos"]["new-owner/component"]["seen_in"])
+                    self.assertEqual(catalog.is_stale(current), not reference_ready)
+
+
     def test_newer_incompatible_publication_cannot_erase_saved_reference_on_api_failure(self):
         saved = self.entry("new-owner/component")
         saved["reference"] = self.reference

@@ -16,6 +16,7 @@ Capture stdout/stderr, the generated catalog and its reference revision. Inspect
 
 The deterministic regressions cover same-day published data, alias/history preservation, and collector/enrichment failures retaining searchable cautions without false freshness.
 Saved reference choices survive a failed refresh beyond the ordinary 120-day observation window, without changing their last-seen date; unrelated expired observations still disappear.
+Archived/forked curated aliases retain canonical metadata and cautions with explicit reference-only liveness labels; unrelated inactive inputs remain excluded.
 These cases isolate input adapters and transport, not live API success.
 The running CLI above is the surface proof; record failed source/enrichment requests rather than claiming every candidate is current.
 
