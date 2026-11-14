@@ -209,7 +209,7 @@ def update(args):
         try:
             item["repo"] = json.loads(fetch(f"https://api.github.com/repos/{item['name']}", token))
         except urllib.error.HTTPError as err:
-            if err.code != 404:
+            if err.code != 404 or "reference" in item:
                 print(f"warning: could not enrich {item['name']}: {err}", file=sys.stderr)
         except (urllib.error.URLError, OSError, ValueError) as err:
             print(f"warning: could not enrich {item['name']}: {err}", file=sys.stderr)
@@ -220,10 +220,14 @@ def update(args):
     reference_ready = not status.get("reference-library", "failed: missing").startswith("failed:")
     references = {name: entry["reference"] for name, entry in repos.items() if "reference" in entry}
     if reference_ready:
-        references = {
-            (item["repo"] or {}).get("full_name", item["name"]).lower(): item["reference"]
-            for item in found.values() if "reference" in item
-        }
+        reference_items = [item for item in found.values() if "reference" in item]
+        reference_ready = all(item["repo"] for item in reference_items)
+        if reference_ready:
+            references.clear()
+        references.update({
+            item["repo"]["full_name"].lower(): item["reference"]
+            for item in reference_items if item["repo"]
+        })
     stamp = today().isoformat()
     for item in found.values():
         repo = item["repo"]
@@ -258,6 +262,8 @@ def update(args):
     catalog["sources"] = status
     if reference_ready:
         catalog["reference_revision"] = REFERENCE_REVISION
+    else:
+        catalog.pop("reference_revision", None)
 
     args.out.mkdir(parents=True, exist_ok=True)
     catalog_path.write_text(json.dumps(catalog, indent=1, ensure_ascii=False) + "\n", encoding="utf-8", newline="\n")

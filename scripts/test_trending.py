@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+import urllib.error
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -103,6 +104,25 @@ class ReferenceDiscoveryTests(unittest.TestCase):
         with patch.object(catalog, "SOURCES", [("reference-library", unavailable), ("other-source", other_source)]), \
                 patch.object(catalog, "github_token", return_value=None), \
                 contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
+            catalog.update(argparse.Namespace(out=self.out))
+            catalog.find(argparse.Namespace(out=self.out, terms=["doctor admin"], limit=20, no_refresh=True))
+        self.assertIn("[new-owner/component]", output.getvalue())
+        self.assertIn(self.reference["caution"], output.getvalue())
+        self.assertTrue(catalog.is_stale(catalog.load_catalog(self.out / "catalog.json")))
+
+    def test_failed_alias_enrichment_retains_saved_reference_and_requires_refresh(self):
+        def source(found, token):
+            catalog.add(found, "old-owner/component", "reference-library")
+            found["old-owner/component"]["reference"] = self.reference
+
+        output = io.StringIO()
+        responses = [json.dumps(self.repository("new-owner/component")),
+                     urllib.error.URLError("temporary enrichment failure")]
+        with patch.object(catalog, "SOURCES", [("reference-library", source)]), \
+                patch.object(catalog, "github_token", return_value=None), \
+                patch.object(catalog, "fetch", side_effect=responses), \
+                contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
+            catalog.update(argparse.Namespace(out=self.out))
             catalog.update(argparse.Namespace(out=self.out))
             catalog.find(argparse.Namespace(out=self.out, terms=["doctor admin"], limit=20, no_refresh=True))
         self.assertIn("[new-owner/component]", output.getvalue())
