@@ -130,5 +130,37 @@ class ReferenceDiscoveryTests(unittest.TestCase):
         self.assertTrue(catalog.is_stale(catalog.load_catalog(self.out / "catalog.json")))
 
 
+    def test_newer_incompatible_publication_cannot_erase_saved_reference_on_api_failure(self):
+        saved = self.entry("new-owner/component")
+        saved["reference"] = self.reference
+        self.write_catalog({"updated": "2026-11-14", "sources": {},
+                            "reference_revision": catalog.REFERENCE_REVISION,
+                            "repos": {"new-owner/component": saved}})
+        incompatible = dict(saved)
+        incompatible.pop("reference")
+        published = {"updated": "2026-11-15", "sources": {},
+                     "repos": {"new-owner/component": incompatible}}
+
+        def source(found, token):
+            catalog.add(found, "old-owner/component", "reference-library")
+            found["old-owner/component"]["reference"] = self.reference
+
+        def remote(url, token=None):
+            if url == "https://example.test/catalog.json":
+                return json.dumps(published)
+            raise urllib.error.URLError("temporary enrichment failure")
+
+        output = io.StringIO()
+        with patch.object(catalog, "today", return_value=dt.date(2026, 11, 16)), \
+                patch.object(catalog, "PUBLISHED", "https://example.test/catalog.json"), \
+                patch.object(catalog, "SOURCES", [("reference-library", source)]), \
+                patch.object(catalog, "github_token", return_value=None), \
+                patch.object(catalog, "fetch", side_effect=remote), \
+                contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
+            catalog.find(argparse.Namespace(out=self.out, terms=["doctor admin"], limit=20, no_refresh=False))
+        self.assertIn("[new-owner/component]", output.getvalue())
+        self.assertIn(self.reference["caution"], output.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

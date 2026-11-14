@@ -351,8 +351,8 @@ def is_stale(catalog) -> bool:
 
 
 def fetch_published(out: Path, local) -> bool:
-    """Copy a newer catalog or a fresh same-day reference revision.
-    An old catalog still beats none after a failed rebuild. Return freshness of the stored copy, not just the response."""
+    """Copy a reference-compatible newer catalog or fresh same-day revision.
+    Return freshness of the stored copy, not just the response."""
     if not PUBLISHED:
         return False
     try:
@@ -360,6 +360,8 @@ def fetch_published(out: Path, local) -> bool:
     except (urllib.error.URLError, OSError, ValueError) as err:
         print(f"warning: could not read the published catalog ({err})", file=sys.stderr)
         return False
+    if published.get("reference_revision") != REFERENCE_REVISION:
+        return not is_stale(local)
     published_stamp, local_stamp = published.get("updated") or "", local["updated"] or ""
     if published_stamp > local_stamp or (
             published_stamp == local_stamp and not is_stale(published) and is_stale(local)):
