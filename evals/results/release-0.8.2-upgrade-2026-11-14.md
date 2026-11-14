@@ -1,6 +1,6 @@
 # Release 0.8.2 upgrade evidence, 2026-11-14
 
-F1: the real omp CLI upgraded an existing user-scoped deepmodebot installation from 0.8.1 to 0.8.2.
+F1: the real omp and Claude Code CLIs each upgraded an existing user-scoped deepmodebot installation from 0.8.1 to 0.8.2.
 No production installation, watcher, credentials, GitHub state or model session was changed.
 
 ## Environment and inputs
@@ -91,9 +91,9 @@ Only the inspection was corrected and rerun; the installation and upgrade were n
 
 ## Limits
 
-This proves version detection and the documented two-command upgrade using the real omp installer and two local, pinned marketplace snapshots.
-It does not prove fetching unpublished 0.8.2 from GitHub, automatic watcher updates, an already-running session reload, agent behavior after loading, or upgrades in Claude Code, Codex, macOS or Linux.
-Repository checks are separate from this runtime proof.
+The omp run proves version detection and the documented two-command upgrade using the real omp installer and two local, pinned marketplace snapshots.
+It does not prove fetching unpublished 0.8.2 from GitHub, automatic watcher updates, an already-running session reload, agent behavior after loading, or upgrades in Codex, macOS or Linux.
+Claude Code is verified separately below. Repository checks are separate from runtime proof.
 
 ## Repository gate
 
@@ -110,3 +110,89 @@ python scripts/check.py
 
 It exited 0 and printed `OK`; output is retained in `check-contained-temp.txt`.
 No bot or skill behavior changed in this evidence-only follow-up.
+
+## Claude Code follow-up
+
+The real Claude Code 2.1.325 CLI ran on the same Windows host, with a fresh isolated configuration under `.scratch/evidence/claude-release-0.8.2-upgrade/`.
+The earlier verification doctor reported `ready: true`.
+No model prompt, subscription call, production settings change or watcher launch was needed.
+
+Commands ran from the checkout root in Git Bash with `set -euo pipefail`:
+
+```bash
+run="$PWD/.scratch/evidence/claude-release-0.8.2-upgrade"
+test ! -e "$run"
+mkdir -p "$run/marketplace" "$run/tmp"
+export CLAUDE_CONFIG_DIR=$(python -c "from pathlib import Path; print(Path('.scratch/evidence/claude-release-0.8.2-upgrade/claude').resolve())")
+export TMP=$(python -c "from pathlib import Path; print(Path('.scratch/evidence/claude-release-0.8.2-upgrade/tmp').resolve())")
+export TEMP="$TMP" TMPDIR="$TMP" CLAUDE_CODE_TMPDIR="$TMP" DISABLE_AUTOUPDATER=1
+claude --version
+git archive 8ad42b3293a79bd6b6458f6325977ffdb7f918ff | tar -x -C "$run/marketplace"
+claude plugin marketplace add "$run/marketplace"
+claude plugin install deepmodebot@deepmodebot
+claude plugin list --json
+```
+
+The add and install commands succeeded. `before.json` recorded:
+
+```json
+{"id":"deepmodebot@deepmodebot","version":"0.8.1","scope":"user","enabled":true,"folderVersion":"0.8.1","installedAt":"2026-11-14T19:30:19.694Z"}
+```
+
+Its `installPath` was under the isolated configuration at `plugins/cache/deepmodebot/deepmodebot/0.8.1`.
+Without uninstalling or reinstalling, the same configuration then ran the README's two update commands:
+
+```bash
+rm -rf "$run/marketplace"
+mkdir -p "$run/marketplace"
+git archive 92c6e8687977106e953014db22c773e51c31dc19 | tar -x -C "$run/marketplace"
+claude plugin marketplace update deepmodebot
+claude plugin update deepmodebot@deepmodebot
+claude plugin list --json
+```
+
+The removed directory was this invocation's disposable marketplace snapshot, not the installed plugin or its registry.
+Observed output:
+
+```text
+Updating marketplace: deepmodebot...Validating local marketplace
+✔ Successfully updated marketplace: deepmodebot
+Checking for updates for plugin "deepmodebot@deepmodebot"…
+✔ Plugin "deepmodebot" updated from 0.8.1 to 0.8.2 for scope user. Restart to apply changes.
+```
+
+`after.json` recorded:
+
+```json
+{"id":"deepmodebot@deepmodebot","version":"0.8.2","scope":"user","enabled":true,"folderVersion":"0.8.2","installedAt":"2026-11-14T19:30:19.694Z","lastUpdated":"2026-11-14T19:30:45.406Z"}
+```
+
+Its `installPath` changed to `plugins/cache/deepmodebot/deepmodebot/0.8.2` under the same isolated configuration.
+Every command exited 0. Raw captures: `claude-version.txt`, `add.txt`, `install.txt`, `before.json`, `update.txt`, `upgrade.txt`, `after.json`.
+
+A Python inspection required the same plugin ID and user scope, versions 0.8.1 then 0.8.2, enabled state, distinct cache paths and containment under this run directory.
+It read version 0.8.2 from the registered installation's manifest and compared every candidate plugin file against that installation by SHA-256.
+`payload-inspection.txt` records exit 0 and:
+
+```text
+PASS: existing enabled Claude Code user installation upgraded 0.8.1 -> 0.8.2
+PASS: registered cache path changed to the isolated 0.8.2 installation
+PASS: all 235 source plugin files match the registered installation (SHA-256)
+deep command SHA-256: d4a4049476469d4cb19f9d9de1cda245f4a5fbaa28d15ad7d479f72682f20652
+Local marketplace readFromFolder: marketplace/plugins/deepmodebot
+```
+
+This is an actual Claude Code plugin update, not an omp run or a mocked installer.
+The source was a local marketplace: Claude Code also reported `readFromFolder` pointing to its source plugin directory, with `folderVersion` changing from 0.8.1 to 0.8.2.
+It proves the CLI update and registered cached payload, not remote GitHub fetching or the distinct behavior of Git-sourced marketplaces.
+No interactive Claude session was running or restarted; post-restart skill discovery and agent behavior were not exercised.
+
+The follow-up repository gate also passed:
+
+```bash
+scratch=$(python -c "from pathlib import Path; print(Path('.scratch/evidence/claude-release-0.8.2-upgrade/tmp').resolve())")
+export TMP="$scratch" TEMP="$scratch" TMPDIR="$scratch"
+python scripts/check.py
+```
+
+Exit 0; stdout `OK`. Output is retained in `.scratch/evidence/claude-release-0.8.2-upgrade/check.txt`.
