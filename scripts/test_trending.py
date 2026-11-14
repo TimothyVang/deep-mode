@@ -35,14 +35,15 @@ class ReferenceDiscoveryTests(unittest.TestCase):
                        + "Do not use patient data in this prototype.",
         }
 
-    def repository(self, name):
+    def repository(self, name, repository_id=1):
         return {"full_name": name, "html_url": "https://github.com/" + name,
+                "id": repository_id,
                 "description": "A generic workflow component", "language": "Python",
                 "license": {"spdx_id": "Apache-2.0"}, "stargazers_count": 10,
                 "created_at": "2026-01-01T00:00:00Z", "pushed_at": "2026-11-14T00:00:00Z"}
 
-    def entry(self, name):
-        return {**catalog.entry_from(self.repository(name)), "first_seen": "2026-11-01",
+    def entry(self, name, repository_id=1):
+        return {**catalog.entry_from(self.repository(name, repository_id)), "first_seen": "2026-11-01",
                 "stars_first_seen": 2, "last_seen": "2026-11-14", "seen_in": ["earlier-source"]}
 
     def write_catalog(self, value):
@@ -133,7 +134,7 @@ class ReferenceDiscoveryTests(unittest.TestCase):
     def test_failed_reference_refresh_preserves_old_choices_but_prunes_other_observations(self):
         saved = self.entry("old-owner/component")
         saved["reference"] = self.reference
-        expired = self.entry("other-owner/expired")
+        expired = self.entry("other-owner/expired", 2)
         self.write_catalog({"updated": "2026-11-14", "sources": {},
                             "reference_revision": catalog.REFERENCE_REVISION,
                             "repos": {"old-owner/component": saved, "other-owner/expired": expired}})
@@ -142,7 +143,7 @@ class ReferenceDiscoveryTests(unittest.TestCase):
             raise ValueError("reference collector unavailable")
 
         def other_source(found, token):
-            catalog.add(found, "other-owner/current", "other-source", self.repository("other-owner/current"))
+            catalog.add(found, "other-owner/current", "other-source", self.repository("other-owner/current", 3))
 
         output = io.StringIO()
         future = dt.date(2026, 11, 14) + dt.timedelta(days=catalog.KEEP_DAYS + 1)
@@ -170,7 +171,7 @@ class ReferenceDiscoveryTests(unittest.TestCase):
                                         "repos": {"old-owner/component": saved}})
                     inactive = self.repository("new-owner/component")
                     inactive[flag] = True
-                    unrelated = self.repository("other-owner/inactive")
+                    unrelated = self.repository("other-owner/inactive", 2)
                     unrelated[flag] = True
 
                     def reference_source(found, token):
@@ -202,6 +203,52 @@ class ReferenceDiscoveryTests(unittest.TestCase):
                     self.assertIn("earlier-source", current["repos"]["new-owner/component"]["seen_in"])
                     self.assertEqual(catalog.is_stale(current), not reference_ready)
 
+
+    def test_repeated_renames_use_repository_identity_to_preserve_one_history(self):
+        saved = self.entry("old-owner/component")
+        saved.pop("github_id")
+        saved["reference"] = self.reference
+        self.write_catalog({"updated": "2026-11-14", "sources": {},
+                            "repos": {"old-owner/component": saved}})
+        responses = iter([self.repository("middle-owner/component"),
+                          self.repository("final-owner/component")])
+
+        def source(found, token):
+            catalog.add(found, "old-owner/component", "reference-library", next(responses))
+            found["old-owner/component"]["reference"] = self.reference
+
+        output = io.StringIO()
+        with patch.object(catalog, "SOURCES", [("reference-library", source)]), \
+                patch.object(catalog, "github_token", return_value=None), \
+                contextlib.redirect_stdout(output):
+            catalog.update(argparse.Namespace(out=self.out))
+            catalog.update(argparse.Namespace(out=self.out))
+            catalog.find(argparse.Namespace(out=self.out, terms=["doctor admin"], limit=20, no_refresh=True))
+        current = catalog.load_catalog(self.out / "catalog.json")
+        self.assertEqual(set(current["repos"]), {"final-owner/component"})
+        final = current["repos"]["final-owner/component"]
+        self.assertEqual(final["first_seen"], saved["first_seen"])
+        self.assertEqual(final["stars_first_seen"], saved["stars_first_seen"])
+        self.assertIn("earlier-source", final["seen_in"])
+        self.assertIn(self.reference["caution"], output.getvalue())
+
+    def test_reused_name_does_not_inherit_a_different_repositorys_history(self):
+        saved = self.entry("owner/component", 1)
+        self.write_catalog({"updated": "2026-11-14", "sources": {},
+                            "repos": {"owner/component": saved}})
+
+        def source(found, token):
+            catalog.add(found, "owner/component", "reference-library", self.repository("owner/component", 2))
+            found["owner/component"]["reference"] = self.reference
+
+        with patch.object(catalog, "SOURCES", [("reference-library", source)]), \
+                patch.object(catalog, "github_token", return_value=None), \
+                contextlib.redirect_stdout(io.StringIO()):
+            catalog.update(argparse.Namespace(out=self.out))
+        current = catalog.load_catalog(self.out / "catalog.json")["repos"]["owner/component"]
+        self.assertEqual(current["first_seen"], "2026-11-14")
+        self.assertEqual(current["stars_first_seen"], current["stars"])
+        self.assertNotIn("earlier-source", current["seen_in"])
 
     def test_newer_incompatible_publication_cannot_erase_saved_reference_on_api_failure(self):
         saved = self.entry("new-owner/component")

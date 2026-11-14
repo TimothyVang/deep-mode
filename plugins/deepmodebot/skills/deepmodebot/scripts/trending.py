@@ -105,6 +105,7 @@ def clean(text, limit=DESCRIPTION_CHARS):
 def entry_from(repo):
     return {
         "name": repo["full_name"],
+        "github_id": repo.get("id"),
         "url": repo["html_url"],
         "description": clean(repo.get("description")),
         "language": repo.get("language"),
@@ -217,6 +218,8 @@ def update(args):
     catalog_path = args.out / "catalog.json"
     catalog = load_catalog(catalog_path)
     repos = catalog["repos"]
+    by_id = {entry["github_id"]: name for name, entry in repos.items()
+             if type(entry.get("github_id")) is int}
     reference_ready = not status.get("reference-library", "failed: missing").startswith("failed:")
     references = {name: entry["reference"] for name, entry in repos.items() if "reference" in entry}
     if reference_ready:
@@ -234,23 +237,33 @@ def update(args):
         if not repo:
             continue
         key, alias = repo["full_name"].lower(), item["name"].lower()
-        if (repo.get("fork") or repo.get("archived")) and key not in references and alias not in references:
+        repository_id = repo.get("id")
+        previous_key = by_id.get(repository_id) if type(repository_id) is int else None
+        predecessors = dict.fromkeys(name for name in (key, previous_key, alias) if name is not None)
+        if (repo.get("fork") or repo.get("archived")) and not any(name in references for name in predecessors):
             continue
         fresh = entry_from(repo)
-        previous = repos.get(key, {})
-        seen_in = set(previous.get("seen_in", []))
-        if alias != key:
-            alias_previous = repos.pop(alias, {})
-            seen_in.update(alias_previous.get("seen_in", []))
-            if alias_previous and (not previous or alias_previous["first_seen"] < previous["first_seen"]):
-                previous = alias_previous
-            if not reference_ready and alias in references:
-                references.setdefault(key, references.pop(alias))
+        previous, seen_in = {}, set()
+        for name in predecessors:
+            cached = repos.get(name, {})
+            cached_id = cached.get("github_id")
+            if type(repository_id) is int and type(cached_id) is int and repository_id != cached_id:
+                if name == key:
+                    by_id.pop(cached_id, None)
+                continue
+            repos.pop(name, None)
+            seen_in.update(cached.get("seen_in", []))
+            if cached and (not previous or cached["first_seen"] < previous["first_seen"]):
+                previous = cached
+            if not reference_ready and name != key and name in references:
+                references.setdefault(key, references.pop(name))
         fresh["first_seen"] = previous.get("first_seen", stamp)
         fresh["stars_first_seen"] = previous.get("stars_first_seen", fresh["stars"])
         fresh["last_seen"] = stamp
         fresh["seen_in"] = sorted(seen_in | item["labels"])
         repos[key] = fresh
+        if type(repository_id) is int:
+            by_id[repository_id] = key
     for name, entry in repos.items():
         reference = references.get(name)
         if reference:
